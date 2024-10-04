@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "pirula-time"
+version = "0.1.0"
+description = ""
+authors = ["lcscosta <lcscosta@disroot.org>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+flask = "^3.0.3"
+python-dotenv = "^1.0.1"
+google-api-python-client = "^2.147.0"
+pandas = "^2.2.3"
+isodate = "^0.6.1"
+matplotlib = "^3.9.2"
+openpyxl = "^3.1.5"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
