@@ -1,0 +1,9 @@
+.custom-table {
+    table-layout: fixed;
+    width: 100%
+  }
+  
+  .custom-table th, .custom-table td {
+    width: 50%;
+    text-align: center;
+  }

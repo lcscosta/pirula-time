@@ -1,6 +1,5 @@
-node_modules/
-scraper/secrets.js
-*.zip
-*.log
-env/
-__pycache__
+.venv/
+.env
+__pycache__/
+*.sqlite
+*.xlsx
