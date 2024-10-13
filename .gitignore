@@ -3,3 +3,7 @@
 __pycache__/
 *.sqlite
 *.xlsx
+
+# Added by cargo
+
+/target
