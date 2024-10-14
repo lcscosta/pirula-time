@@ -1,0 +1,104 @@
+#![feature(proc_macro_hygiene, decl_macro)]
+#[macro_use] extern crate rocket;
+
+use reqwest::Client;
+use rocket::{get, launch, routes};
+use serde_json::Value;
+use std::error::Error;
+use rocket_dyn_templates::Template;
+use dotenv::dotenv;
+use std::collections::HashMap;
+use std::env;
+
+fn verify_env_keys(key: &str) -> () {
+    match env::var(key) {
+        Ok(value) => println!("{}: {}", key, value),
+        Err(e) => eprintln!("Coldn't read Variable: {}", key)
+    }
+}
+
+async fn get_channel_videos(client: &Client, api_key: &str, channel_id: &str) -> Result<Vec<String>, Box<dyn Error>> {
+    let url = format!(
+        "https://www.googleapis.com/youtube/v3/channels?part=contentDetails&id={}&key={}",
+        channel_id, api_key
+    );
+
+    let response: Value = client.get(&url).send().await?.json().await?;
+    let playlist_id = response["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+        .as_str()
+        .ok_or("No uploads playlist found")?;
+
+    let mut videos = Vec::new();
+    let mut next_page_token: Option<String> = None;
+
+    loop {
+        let mut playlist_url = format!(
+            "https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId={}&maxResults=50&key={}",
+            playlist_id,
+            api_key
+        );
+
+        if let Some(token) = &next_page_token {
+            playlist_url.push_str(&format!("&pageToken={}", token));
+        }
+
+        let playlist_response: Value = client.get(&playlist_url).send().await?.json().await?;
+
+        for item in playlist_response["items"].as_array().unwrap_or(&vec![]) {
+            if let Some(video_id) = item["snippet"]["resourceId"]["videoId"].as_str() {
+                videos.push(video_id.to_string());
+            }
+        }
+
+        next_page_token = playlist_response.get("nextPageToken").and_then(Value::as_str).map(String::from);
+        if next_page_token.is_none() {
+            break;
+        }
+    }
+
+    Ok(videos)
+}
+
+#[launch]
+async fn rocket() -> Result<Rocket<Ignite>, dyn Error> {
+    dotenv().ok();
+
+    // Verify GOOGLE_API_KEY
+    verify_env_keys("GOOGLE_API_KEY");
+    let api_key = match env::var("GOOGLE_API_KEY") {
+        Ok(value) => value.as_str(),
+        Err(_) => return Err(rocket::http::Status::InternalServerError),
+    };
+
+    // Verify CHANNEL_ID
+    verify_env_keys("CHANNEL_ID");
+    let channel_id = match env::var("CHANNEL_ID") {
+        Ok(value) => value.as_str(),
+        Err(e) => return Err(e)
+    };
+    // Verify FILEPATH_DATABASE
+    verify_env_keys("FILEPATH_DATABASE");
+    // Verify ENVIRONMENT
+    verify_env_keys("ENVIRONMENT");
+
+
+    let client = Client::new();
+    match get_channel_videos(&client, &api_key, &channel_id).await {
+        Ok(videos) => {
+            println!("{:?}", videos);
+            Ok(())
+        },
+        Err(e) => Err(format!("Error fetching videos: {}", e)),
+    }
+
+    rocket::build()
+        .mount("/", routes![index])
+        .attach(Template::fairing())
+}
+
+#[get("/")]
+async fn index() -> Template {
+    let context: HashMap<String, String> = HashMap::new();
+    Template::render("index", &context)
+}
+
