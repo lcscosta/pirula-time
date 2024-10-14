@@ -2,10 +2,35 @@
 
 use reqwest::Client;
 use rocket::get;
+use rocket::http::Status;
+use rusqlite::{params, Connection, Result};
 use serde_json::Value;
 use std::error::Error;
 use dotenv::dotenv;
 use std::env;
+
+fn create_table(conn: &Connection) -> Result<(), Box<dyn Error>> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS video_details (
+            id INTEGER PRIMARY KEY,
+            video_id TEXT NOT NULL,
+            video_title TEXT NOT NULL,
+            duration INTEGER NOT NULL,
+            published_at TEXT NOT NULL
+        )",
+        [],
+    )?;
+    Ok(())
+}
+
+fn insert_video_details(conn: &Connection, videos: &[VideoDetail]) -> Result<(), Box<dyn Error>> {
+    let mut stmt = conn.prepare("INSERT INTO video_details (video_id, video_title, duration, published_at) VALUES (?1, ?2, ?3, ?4)")?;
+
+    for video in videos {
+        stmt.execute(params![video.video_id, video.video_title, video.duration, video.published_at])?;
+    }
+    Ok(())
+}
 
 async fn get_video_details(client: &Client, api_key: &str, video_ids: Vec<String>) -> Result<Vec<VideoDetail>, Box<dyn Error>> {
     let mut all_video_details = Vec::new();
@@ -170,17 +195,25 @@ async fn get_channel_videos(client: &Client, api_key: &str, channel_id: &str) ->
 #[get("/videos")]
 async fn videos() -> Result<(), rocket::http::Status> {
     dotenv().ok();
+
     let api_key = env::var("GOOGLE_API_KEY").map_err(|_| rocket::http::Status::InternalServerError)?;
     let channel_id = env::var("CHANNEL_ID").map_err(|_| rocket::http::Status::InternalServerError)?;
+    let filepath_database = env::var("FILEPATH_DATABASE").map_err(|_| rocket::http::Status::InternalServerError)?;
+ 
+    let conn = Connection::open(filepath_database).map_err(|_| Status::InternalServerError)?;
+
     let client = Client::new();
     let videos = get_channel_videos(&client, &api_key, &channel_id).await.map_err(|_| rocket::http::Status::InternalServerError)?;
-    match get_video_details(&client, &api_key, videos).await {
-        Ok(details) => {
-            println!("{:?}", details);
-            Ok(())
-        },
-        Err(_) => Err(rocket::http::Status::InternalServerError),
-    }
+    let details = get_video_details(&client, &api_key, videos).await.map_err(|_| rocket::http::Status::InternalServerError)?;
+
+    create_table(&conn).map_err(|_| Status::InternalServerError)?;
+
+     // Insert the video details into the database
+    insert_video_details(&conn, &details).map_err(|_| Status::InternalServerError)?;
+
+    println!("Inserted video details successfully.");
+
+    Ok(())
 }
 
 #[launch]
