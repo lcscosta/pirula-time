@@ -1,5 +1,6 @@
 #[macro_use] extern crate rocket;
 
+use clap::{Parser, Subcommand};
 use reqwest::Client;
 use rocket::get;
 use rocket::http::Status;
@@ -9,7 +10,7 @@ use std::error::Error;
 use dotenv::dotenv;
 use std::env;
 
-fn create_table(conn: &Connection) -> Result<(), Box<dyn Error>> {
+fn create_db(conn: &Connection) -> Result<(), Box<dyn Error>> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS video_details (
             id INTEGER PRIMARY KEY,
@@ -23,13 +24,31 @@ fn create_table(conn: &Connection) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn insert_video_details(conn: &Connection, videos: &[VideoDetail]) -> Result<(), Box<dyn Error>> {
+fn db_insert_video_details(conn: &Connection, videos: &[VideoDetail]) -> Result<(), Box<dyn Error>> {
     let mut stmt = conn.prepare("INSERT INTO video_details (video_id, video_title, duration, published_at) VALUES (?1, ?2, ?3, ?4)")?;
 
     for video in videos {
         stmt.execute(params![video.video_id, video.video_title, video.duration, video.published_at])?;
     }
     Ok(())
+}
+
+fn db_get_video_details(conn: &Connection) -> Result<Vec<VideoDetail>, Box<dyn Error>> {
+    let mut stmt = conn.prepare("SELECT video_id, video_title, duration, published_at FROM video_details")?;
+    let video_iter = stmt.query_map([], |row| {
+        Ok(VideoDetail {
+            video_id: row.get(0)?,
+            video_title: row.get(1)?,
+            duration: row.get(2)?,
+            published_at: row.get(3)?,
+        })
+    })?;
+
+    let mut videos = Vec::new();
+    for video in video_iter {
+        videos.push(video?);
+    }
+    Ok(videos)
 }
 
 async fn get_video_details(client: &Client, api_key: &str, video_ids: Vec<String>) -> Result<Vec<VideoDetail>, Box<dyn Error>> {
@@ -196,6 +215,18 @@ async fn get_channel_videos(client: &Client, api_key: &str, channel_id: &str) ->
 async fn videos() -> Result<(), rocket::http::Status> {
     dotenv().ok();
 
+    let filepath_database = env::var("FILEPATH_DATABASE").map_err(|_| rocket::http::Status::InternalServerError)?;
+    let conn = Connection::open(filepath_database).map_err(|_| Status::InternalServerError)?;
+    let get_videos_db = db_get_video_details(&conn).map_err(|_| rocket::http::Status::InternalServerError)?;
+
+    println!("{:?}", get_videos_db);
+
+    Ok(())
+}
+
+async fn create_db_cli() -> Result<(), rocket::http::Status> {
+    dotenv().ok();
+
     let api_key = env::var("GOOGLE_API_KEY").map_err(|_| rocket::http::Status::InternalServerError)?;
     let channel_id = env::var("CHANNEL_ID").map_err(|_| rocket::http::Status::InternalServerError)?;
     let filepath_database = env::var("FILEPATH_DATABASE").map_err(|_| rocket::http::Status::InternalServerError)?;
@@ -206,18 +237,42 @@ async fn videos() -> Result<(), rocket::http::Status> {
     let videos = get_channel_videos(&client, &api_key, &channel_id).await.map_err(|_| rocket::http::Status::InternalServerError)?;
     let details = get_video_details(&client, &api_key, videos).await.map_err(|_| rocket::http::Status::InternalServerError)?;
 
-    create_table(&conn).map_err(|_| Status::InternalServerError)?;
+    create_db(&conn).map_err(|_| Status::InternalServerError)?;
 
      // Insert the video details into the database
-    insert_video_details(&conn, &details).map_err(|_| Status::InternalServerError)?;
+    db_insert_video_details(&conn, &details).map_err(|_| Status::InternalServerError)?;
 
     println!("Inserted video details successfully.");
 
     Ok(())
 }
 
-#[launch]
-fn rocket() -> _ {
-    rocket::build().mount("/", routes![videos])
+#[derive(Parser)]
+#[command(name = "Pirula-Time Server")]
+#[command(about = "Tracking Pirula Time")]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
 }
 
+#[derive(Subcommand)]
+enum Commands {
+    Server,
+    CreateDb
+}
+
+#[launch]
+async fn rocket() -> _ {
+    let cli = Cli::parse();
+
+    match &cli.command {
+        Commands::Server => {
+            rocket::build().mount("/", routes![videos])
+        },
+        Commands::CreateDb => {
+            let _ = create_db_cli().await;
+            std::process::exit(0);
+        }
+    }
+    
+}
