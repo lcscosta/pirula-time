@@ -1,9 +1,13 @@
+# Python
 .venv/
 .env
 __pycache__/
 *.sqlite
 *.xlsx
 
-# Added by cargo
+# Generated images
+histogram.png
+mean_series.png
 
+# Added by cargo
 /target
