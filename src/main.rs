@@ -1,16 +1,36 @@
 #[macro_use] extern crate rocket;
 
+use chrono::Duration;
 use clap::{Parser, Subcommand};
+use dotenv::dotenv;
 use reqwest::Client;
 use rocket::get;
 use rocket::http::Status;
-use rusqlite::{params, Connection, Result};
+use rocket_dyn_templates::Template;
+use rusqlite::{params, Connection, Result, Row};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::error::Error;
-use dotenv::dotenv;
 use std::env;
 
 fn create_db(conn: &Connection) -> Result<(), Box<dyn Error>> {
+
+    conn.execute(
+        "DROP TABLE IF EXISTS video_details",
+        [],
+    )?;
+
+    conn.execute(
+        "DROP TABLE IF EXISTS statistics",
+        [],
+    )?;
+
+    conn.execute(
+        "DROP TABLE IF EXISTS unkowns",
+        [],
+    )?;
+
+
     conn.execute(
         "CREATE TABLE IF NOT EXISTS video_details (
             id INTEGER PRIMARY KEY,
@@ -21,6 +41,26 @@ fn create_db(conn: &Connection) -> Result<(), Box<dyn Error>> {
         )",
         [],
     )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS statistics (
+            mean_duration TEXT NOT NULL,
+            std_duration TEXT NOT NULL,
+            total_duration TEXT NOT NULL,
+            total_count INTEGER NOT NULL
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS unkowns (
+            speed_of_light TEXT NOT NULL,
+            time_sun_earth TEXT NOT NULL,
+            closest_star TEXT NOT NULL
+        )",
+        [],
+    )?;
+
     Ok(())
 }
 
@@ -30,6 +70,37 @@ fn db_insert_video_details(conn: &Connection, videos: &[VideoDetail]) -> Result<
     for video in videos {
         stmt.execute(params![video.video_id, video.video_title, video.duration, video.published_at])?;
     }
+    Ok(())
+}
+
+fn db_insert_statistics(conn: &Connection, stats: &Statistics) -> Result<(), Box<dyn Error>> {
+    let mut stmt = conn.prepare(
+        "INSERT INTO statistics (mean_duration, std_duration, total_duration, total_count) 
+         VALUES (?1, ?2, ?3, ?4)"
+    )?;
+
+    stmt.execute(params![
+        stats.mean_duration,
+        stats.std_duration,
+        stats.total_duration,
+        stats.total_count,
+    ])?;
+
+    Ok(())
+}
+
+fn db_insert_unkowns(conn: &Connection, unkowns: &UnkownFacts) -> Result<(), Box<dyn Error>> {
+    let mut stmt = conn.prepare(
+        "INSERT INTO unkowns (speed_of_light, time_sun_earth, closest_star) 
+         VALUES (?1, ?2, ?3)"
+    )?;
+
+    stmt.execute(params![
+        unkowns.speed_of_light,
+        unkowns.time_sun_earth,
+        unkowns.closest_star,
+    ])?;
+
     Ok(())
 }
 
@@ -49,6 +120,33 @@ fn db_get_video_details(conn: &Connection) -> Result<Vec<VideoDetail>, Box<dyn E
         videos.push(video?);
     }
     Ok(videos)
+}
+
+fn db_get_statistics(conn: &Connection) -> Result<Statistics, Box<dyn Error>> {
+    let mut stmt = conn.prepare("SELECT mean_duration, std_duration, total_duration, total_count FROM statistics")?;
+    let statistics = stmt.query_row([], |row: &Row| {
+        Ok(Statistics {
+            mean_duration: row.get(0)?,
+            std_duration: row.get(1)?,
+            total_duration: row.get(2)?,
+            total_count: row.get(3)?,
+        })
+    })?;
+
+    Ok(statistics)
+}
+
+fn db_get_unkowns(conn: &Connection) -> Result<UnkownFacts, Box<dyn Error>> {
+    let mut stmt = conn.prepare("SELECT speed_of_light, time_sun_earth, closest_star FROM unkowns")?;
+    let unkowns = stmt.query_row([], |row: &Row| {
+        Ok(UnkownFacts {
+            speed_of_light: row.get(0)?,
+            time_sun_earth: row.get(1)?,
+            closest_star: row.get(2)?,
+        })
+    })?;
+
+    Ok(unkowns)
 }
 
 async fn get_video_details(client: &Client, api_key: &str, video_ids: Vec<String>) -> Result<Vec<VideoDetail>, Box<dyn Error>> {
@@ -169,6 +267,106 @@ struct VideoDetail {
     published_at: String,
 }
 
+#[derive(Debug)]
+struct Statistics {
+    mean_duration: String,
+    std_duration: String,
+    total_duration: String,
+    total_count: i32
+}
+
+#[derive(Debug)]
+struct UnkownFacts {
+    speed_of_light: String,
+    time_sun_earth: String,
+    closest_star: String
+}
+
+fn parse_duration(duration_str: &str) -> Result<i64, Box<dyn std::error::Error>> {
+    let parts: Vec<&str> = duration_str.split(':').collect();
+
+    // Parse each part and handle the number of parts to support "HH:MM:SS" or "MM:SS"
+    let seconds = match parts.len() {
+        3 => {
+            let hours: i64 = parts[0].parse().map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+            let minutes: i64 = parts[1].parse().map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+            let seconds: i64 = parts[2].parse().map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+            hours * 3600 + minutes * 60 + seconds
+        },
+        2 => {
+            let minutes: i64 = parts[0].parse().map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+            let seconds: i64 = parts[1].parse().map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+            minutes * 60 + seconds
+        },
+        _ => return Err("Invalid duration format".into()), // Use a string error instead
+    };
+
+    Ok(seconds)
+}
+
+fn calculate_pirula_unkowns(stats: &Statistics) -> Result<(UnkownFacts), Box<dyn Error>> {
+    // Astronomical Unit in m
+    let AU = 149597870700.0;
+    // light speed in m/s
+    let C = 299792458.0;
+    // distance to closest start in ly
+    let CLOSEST_STAR_DISTANCE = 4.22;
+    // seconds in a year
+    let SECONDS_IN_YEAR = 365.4 * 24.0 * 3600.0;
+
+    let duration_sec = parse_duration(&stats.mean_duration)?; 
+
+    let unkowns = UnkownFacts {
+        speed_of_light:  format!("{:.2}", C / duration_sec as f64),
+        time_sun_earth:  format!("{:.2}", (AU / C ) / duration_sec as f64),
+        closest_star:  format!("{:.2}", CLOSEST_STAR_DISTANCE * SECONDS_IN_YEAR / duration_sec as f64)
+    };
+
+    Ok(unkowns)
+}
+
+fn format_duration(duration: Duration) -> String {
+    let seconds = duration.num_seconds();
+    let hours = seconds / 3600;
+    let minutes = (seconds % 3600) / 60;
+    let seconds = seconds % 60;
+    format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+}
+
+fn calculate_pirula_stats(videos: &[VideoDetail]) -> (Duration, Duration, Duration, usize) {
+
+    let total_count = videos.len();
+
+    if total_count == 0 {
+        return (Duration::zero(), Duration::zero(), Duration::zero(), 0);
+    }
+
+    // Calculate total duration
+    let total_duration = videos.iter()
+        .map(|video| video.duration)
+        .sum::<i64>();
+
+    // Calculate mean duration
+    let mean_duration = total_duration as f64 / total_count as f64;
+
+    // Calculate standard deviation
+    let variance = videos.iter()
+        .map(|video| {
+            let diff = video.duration as f64 - mean_duration;
+            diff * diff
+        })
+        .sum::<f64>()
+        / total_count as f64;
+    let std_deviation = variance.sqrt();
+
+    // Convert to chrono Duration for formatted output
+    let total_duration_dur = Duration::seconds(total_duration);
+    let mean_duration_dur = Duration::seconds(mean_duration as i64);
+    let std_deviation_dur = Duration::seconds(std_deviation as i64);
+
+    (mean_duration_dur, std_deviation_dur, total_duration_dur, total_count)
+}
+
 async fn get_channel_videos(client: &Client, api_key: &str, channel_id: &str) -> Result<Vec<String>, Box<dyn Error>> {
     let url = format!(
         "https://www.googleapis.com/youtube/v3/channels?part=contentDetails&id={}&key={}",
@@ -221,6 +419,14 @@ async fn videos() -> Result<(), rocket::http::Status> {
 
     println!("{:?}", get_videos_db);
 
+    let get_statistics_db = db_get_statistics(&conn).map_err(|_| rocket::http::Status::InternalServerError)?;
+
+    println!("{:?}", get_statistics_db);
+
+    let get_unkowns_db = db_get_unkowns(&conn).map_err(|_| rocket::http::Status::InternalServerError)?;
+
+    println!("{:?}", get_unkowns_db);
+
     Ok(())
 }
 
@@ -244,6 +450,25 @@ async fn create_db_cli() -> Result<(), rocket::http::Status> {
 
     println!("Inserted video details successfully.");
 
+    let (mean, std_dev, total, count) = calculate_pirula_stats(&details);
+    
+    let stats = Statistics {
+        mean_duration: format_duration(mean),
+        std_duration: format_duration(std_dev),
+        total_duration: format_duration(total),
+        total_count: count as i32,
+    };
+
+    db_insert_statistics(&conn, &stats).map_err(|_| Status::InternalServerError)?;
+    
+    println!("Inserted statistics successfully.");
+
+    let unkown = calculate_pirula_unkowns(&stats).map_err(|_| Status::InternalServerError)?;
+
+    db_insert_unkowns(&conn, &unkown).map_err(|_| Status::InternalServerError)?;
+
+    println!("Inserted unkowns successfully.");
+
     Ok(())
 }
 
@@ -261,13 +486,36 @@ enum Commands {
     CreateDb
 }
 
+#[get("/")]
+async fn index() -> Result<Template, Status> {
+    dotenv().ok();
+
+    let filepath_database = env::var("FILEPATH_DATABASE").map_err(|_| rocket::http::Status::InternalServerError)?;
+    let conn = Connection::open(filepath_database).map_err(|_| Status::InternalServerError)?;    
+    let stats = db_get_statistics(&conn).map_err(|_| Status::InternalServerError)?;
+    let unkowns = db_get_unkowns(&conn).map_err(|_| Status::InternalServerError)?;
+
+    let mut context: HashMap<String, String> = HashMap::new();
+    context.insert("mean_duration".to_string(), stats.mean_duration);
+    context.insert("std_duration".to_string(), stats.std_duration);
+    context.insert("total_duration".to_string(), stats.total_duration);
+    context.insert("total_count".to_string(), stats.total_count.to_string());
+    context.insert("speed_of_light".to_string(), unkowns.speed_of_light);
+    context.insert("time_sun_earth".to_string(), unkowns.time_sun_earth);
+    context.insert("closest_star".to_string(), unkowns.closest_star);
+
+    Ok(Template::render("index", &context))
+}
+
 #[launch]
 async fn rocket() -> _ {
     let cli = Cli::parse();
 
     match &cli.command {
         Commands::Server => {
-            rocket::build().mount("/", routes![videos])
+            rocket::build()
+                .mount("/", routes![videos, index])
+                .attach(Template::fairing())
         },
         Commands::CreateDb => {
             let _ = create_db_cli().await;

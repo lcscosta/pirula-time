@@ -21,7 +21,7 @@
 <div class="container">
     <div class="timer">
         <br><br>
-        <h1 class="header center orange-text"> 00:00 &plusmn; 00:00</h1>
+        <h1 class="header center orange-text"> {{ mean_duration }} &plusmn; {{ std_duration }}</h1>
         <div class="row center">
             <h5 class="header col s12 light">Pirula Duration. Last updated: 00:00 </h5>
         </div>
@@ -37,19 +37,19 @@
                 <tbody>
                     <tr>
                         <td>Mean Pirula Duration</td>
-                        <td> 00:00 </td>
+                        <td> {{ mean_duration }} </td>
                     </tr>
                     <tr>
                         <td>Standard Deviation of Pirula Duration</td>
-                        <td> 00:00 </td>
+                        <td> {{ std_duration }} </td>
                     </tr>
                     <tr>
                         <td>Total of Pirula's Videos Duration</td>
-                        <td> 00:00 </td>
+                        <td> {{ total_duration }} </td>
                     </tr>
                     <tr>
                         <td>Total of Pirula's Videos</td>
-                        <td> 00:00 </td>
+                        <td> {{ total_count }} </td>
                     </tr>
                 </tbody>
             </table>
@@ -66,15 +66,15 @@
                 <tbody>
                     <tr>
                         <td>Speed of Light in Pirula</td>
-                        <td> 00 m/pirula</td>
+                        <td> {{ speed_of_light }} m/pirula</td>
                     </tr>
                     <tr>
                         <td>Time to go from Sun to Earth in Pirula</td>
-                        <td> 00 pirula</td>
+                        <td> {{ time_sun_earth }} pirula</td>
                     </tr>
                     <tr>
                         <td>Closest Star in Pirula</td>
-                        <td> 00 pirula</td>
+                        <td> {{ closest_star }} pirula</td>
                     </tr>
                 </tbody>
             </table>
@@ -87,19 +87,6 @@
                 <img src="" alt="Histogram" style="width:100%;">
             </div>
         </div>
-    </div>
-    <div class="row">
-        <h2 class="header center">Recent Uploads</h2>
-        <table class="highlight">
-            <thead>
-                <tr>
-                    <th>Title</th>
-                    <th>Duration</th>
-                </tr>
-            </thead>
-            <tbody>
-            </tbody>
-        </table>
     </div>
     <div class="row center">
         <a href="#" class="waves-effect waves-light btn" download>
