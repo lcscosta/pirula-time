@@ -4,8 +4,9 @@ use chrono::Duration;
 use clap::{Parser, Subcommand};
 use dotenv::dotenv;
 use reqwest::Client;
-use rocket::get;
+use rocket::fs::{FileServer, relative};
 use rocket::http::Status;
+use rocket::get;
 use rocket_dyn_templates::Template;
 use rusqlite::{params, Connection, Result, Row};
 use serde_json::Value;
@@ -516,6 +517,7 @@ async fn rocket() -> _ {
             rocket::build()
                 .mount("/", routes![videos, index])
                 .attach(Template::fairing())
+                .mount("/static", FileServer::from(relative!("static")))
         },
         Commands::CreateDb => {
             let _ = create_db_cli().await;
